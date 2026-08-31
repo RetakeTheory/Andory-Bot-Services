@@ -65,10 +65,10 @@ npx wrangler deploy
 
 ## External data and rights
 
-Third-party MasterData, Unity bundles, IPA files, game assets, fonts, logos, character images and metadata are intentionally excluded from this repository. The Bot obtains supported data from the external game/API services at runtime; deployment operators are responsible for access, rate limits, and compliance with each service's terms. Such third-party material is not covered by this repository's MIT License.
+Third-party MasterData, Unity bundles, IPA files, game assets, fonts, logos, character images and metadata are intentionally excluded from this repository. The Bot obtains supported data from the external game/API services at runtime; deployment operators are responsible for access, rate limits, and compliance with each service's terms. Such third-party material is not covered by this repository's project license.
 
 All third-party API endpoints, tokens, protocol secrets, and Cloudflare credentials must be supplied by the deployer through local environment variables or platform secrets.
 
 ## License and sponsorship
 
-The original Andory source code in this repository is released under the MIT License and may be used commercially. Sponsorship is welcome, but does not grant ownership of or permission to redistribute Hololive Dreams game assets, logos, character art, MasterData, or access credentials; those remain subject to their respective rights holders and service terms.
+The original Andory source code is licensed for non-commercial use only. Sponsorship and voluntary donations to the developer are welcome, but do not grant commercial-use permission or ownership of Hololive Dreams game assets, logos, character art, MasterData, or access credentials; those remain subject to their respective rights holders and service terms. See `LICENSE` for the full terms.
