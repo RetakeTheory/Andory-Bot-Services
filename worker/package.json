@@ -13,7 +13,8 @@
     "test:speed": "node test/speed.mjs",
     "test:render": "node test/render-preview.mjs",
     "bot:game": "node --env-file-if-exists=.dev.vars --env-file-if-exists=.game.env examples/game-data-bot.mjs",
-    "probe:game": "node --env-file-if-exists=.game.env examples/game-probe.mjs"
+    "probe:game": "node --env-file-if-exists=.game.env examples/game-probe.mjs",
+    "build:launchers": "node scripts/build-standalone-launchers.mjs"
   },
   "dependencies": {
     "@7mind.io/sqlcipher-wasm": "1.2.0",
@@ -21,6 +22,8 @@
     "sharp": "0.35.2"
   },
   "devDependencies": {
+    "postject": "1.0.0-alpha.6",
+    "tar-stream": "3.1.7",
     "typescript": "7.0.2",
     "wrangler": "4.125.0"
   }

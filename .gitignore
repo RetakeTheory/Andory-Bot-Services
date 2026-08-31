@@ -10,6 +10,8 @@ worker/.wrangler/
 worker/.data/
 worker/test-output/
 worker/dist/
+worker/release/
+worker/.release-cache/
 worker/node_modules/
 worker/node_modules.partial/
 worker/worker-configuration.d.ts

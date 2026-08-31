@@ -4,4 +4,6 @@ node_modules.partial/
 .dev.vars
 .game.env
 .data/
+release/
+.release-cache/
 worker-configuration.d.ts
