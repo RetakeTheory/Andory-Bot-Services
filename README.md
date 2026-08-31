@@ -71,4 +71,4 @@ All third-party API endpoints, tokens, protocol secrets, and Cloudflare credenti
 
 ## License and sponsorship
 
-The original Andory source code is licensed for non-commercial use only. Sponsorship and voluntary donations to the developer are welcome, but do not grant commercial-use permission or ownership of Hololive Dreams game assets, logos, character art, MasterData, or access credentials; those remain subject to their respective rights holders and service terms. See `LICENSE` for the full terms.
+The original Andory source code is strictly non-commercial: commercial use is completely prohibited, with no commercial exception or commercial license granted by this project. Sponsorship and voluntary donations to the developer are welcome, but do not grant commercial-use permission or ownership of Hololive Dreams game assets, logos, character art, MasterData, or access credentials; those remain subject to their respective rights holders and service terms. See `LICENSE` for the full terms.
