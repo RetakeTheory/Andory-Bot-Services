@@ -86,3 +86,9 @@ All third-party API endpoints, tokens, protocol secrets, and Cloudflare credenti
 ## License and sponsorship
 
 The original Andory source code is strictly non-commercial: commercial use is completely prohibited, with no commercial exception or commercial license granted by this project. Sponsorship and voluntary donations to the developer are welcome, but do not grant commercial-use permission or ownership of Hololive Dreams game assets, logos, character art, MasterData, or access credentials; those remain subject to their respective rights holders and service terms. See `LICENSE` for the full terms.
+
+## Credential portal
+
+`https://holo.rettheory.top` provides email/password registration for ordinary users and issues revocable Bot credentials. Credential plaintext is shown once; only its SHA-256 hash is stored in D1. Ordinary credentials are pinned to the OneBot protocol and cannot impersonate the custom game-data adapter.
+
+The first administrator is activated with the one-time `ADMIN_BOOTSTRAP_TOKEN`, then must enroll an Authenticator-compatible TOTP account. TOTP secrets are encrypted at rest with `AUTH_ENCRYPTION_KEY`. Only an Authenticator-verified administrator can issue an `audit` credential or open the alias review page. The game-data adapter remains protected by the separate `BOT_WS_TOKEN` deployment secret.

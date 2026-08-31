@@ -26,6 +26,7 @@ import type { SpeedSeries } from "./speed";
 interface Attachment {
   role: "bot" | "client";
   protocol: "auto" | "custom" | "onebot11";
+  principal: string;
   connectionId: string;
   connectedAt: number;
 }
@@ -847,6 +848,7 @@ export class BotRelay extends DurableObject<Env> {
     const role = request.headers.get("X-Relay-Role");
     if (role !== "bot" && role !== "client") return Response.json({ ok: false, error: "无效角色" }, { status: 400 });
     const requestedProtocol = request.headers.get("X-Relay-Protocol");
+    const principal = request.headers.get("X-Relay-Principal") || role;
     const protocol = role === "client"
       ? "custom"
       : requestedProtocol === "custom" || requestedProtocol === "onebot11"
@@ -854,10 +856,13 @@ export class BotRelay extends DurableObject<Env> {
         : "auto";
     if (role === "bot") {
       for (const old of this.botSockets()) {
-        const oldProtocol = attachment(old).protocol;
-        const sameLane = protocol === "custom" ? oldProtocol === "custom" : oldProtocol !== "custom";
-        if (!sameLane) continue;
-        if (oldProtocol === "custom") {
+        const oldState = attachment(old);
+        const replacesDataBot = protocol === "custom" && oldState.protocol === "custom";
+        const replacesSameCredential = protocol !== "custom"
+          && oldState.protocol !== "custom"
+          && oldState.principal === principal;
+        if (!replacesDataBot && !replacesSameCredential) continue;
+        if (oldState.protocol === "custom") {
           old.send(JSON.stringify({ type: "replaced", reason: "新的 Bot 连接已接管此频道" }));
         }
         old.close(4001, "replaced");
@@ -866,7 +871,7 @@ export class BotRelay extends DurableObject<Env> {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.ctx.acceptWebSocket(server);
-    const state: Attachment = { role, protocol, connectionId: crypto.randomUUID(), connectedAt: Date.now() };
+    const state: Attachment = { role, protocol, principal, connectionId: crypto.randomUUID(), connectedAt: Date.now() };
     server.serializeAttachment(state);
     if (role === "client" || protocol === "custom") {
       server.send(JSON.stringify({ type: "ready", role, connectionId: state.connectionId, protocol: 1 }));
@@ -1933,6 +1938,7 @@ function attachment(socket: WebSocket): Attachment {
   return {
     role: value?.role === "bot" ? "bot" : "client",
     protocol: value?.protocol === "custom" || value?.protocol === "onebot11" ? value.protocol : "auto",
+    principal: typeof value?.principal === "string" ? value.principal : "legacy",
     connectionId: typeof value?.connectionId === "string" ? value.connectionId : "unknown",
     connectedAt: typeof value?.connectedAt === "number" ? value.connectedAt : 0,
   };

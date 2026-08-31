@@ -1,7 +1,9 @@
 import { publicContract } from "./contract";
 import { auditDocument } from "./audit";
+import { authorizeBotSocket, handleAccountRoute, requireAdminSession, requireAuditAccess, requirePublicApiAccess, requireSystemAccess } from "./auth";
 import { BotRelay } from "./relay";
 import { HttpError } from "./model";
+import { credentialPortalDocument } from "./portal";
 import type { ContentQuery, ContentRequest, Region } from "./model";
 import { makeRequest, parseApi, usage } from "./protocol";
 
@@ -33,20 +35,23 @@ export default {
         return withCors(Response.json({ ok: true, service: "holodori-rank-api", relay: relayState }));
       }
       if (url.pathname === "/contract") return withCors(Response.json(publicContract()));
-      if (url.pathname === "/") return withCors(Response.json(indexDocument(url)));
+      if (url.pathname === "/") return isPortalHost(url) ? portalPage() : withCors(Response.json(indexDocument(url)));
+      const accountResponse = await handleAccountRoute(request, env, url);
+      if (accountResponse) return accountResponse;
       if (url.pathname === "/audit") {
         if (request.method !== "GET") throw new HttpError(405, "只支持 GET");
+        await requireAdminSession(request, env);
         return auditPage();
       }
       if (url.pathname === "/api/v1/audit/aliases") {
         if (request.method !== "GET") throw new HttpError(405, "只支持 GET");
-        await requireAuditToken(request, env);
+        await requireAuditAccess(request, env);
         return withCors(await relayStub(env, channelOf(url, env)).fetch("https://relay/aliases/list"));
       }
       const aliasReviewMatch = ALIAS_REVIEW_ROUTE.exec(url.pathname);
       if (aliasReviewMatch) {
         if (request.method !== "POST") throw new HttpError(405, "只支持 POST");
-        await requireAuditToken(request, env);
+        await requireAuditAccess(request, env);
         const declared = Number(request.headers.get("content-length") ?? "0");
         if (declared > 2048) throw new HttpError(413, "审核请求体过大");
         const body = await request.arrayBuffer();
@@ -66,24 +71,25 @@ export default {
       const gameProxy = GAME_PROXY_ROUTE.exec(url.pathname);
       if (gameProxy) {
         if (request.method !== "POST") throw new HttpError(405, "只支持 POST");
-        if (!env.BOT_WS_TOKEN) throw new HttpError(503, "尚未配置 BOT_WS_TOKEN");
-        if (!(await tokenMatches(request, env.BOT_WS_TOKEN))) throw new HttpError(401, "游戏数据端未授权");
+        await requireSystemAccess(request, env);
         return proxyGameRpc(request, gameProxy[1] as keyof typeof GAME_HOST, `${gameProxy[2]}/${gameProxy[3]}`);
       }
       if (url.pathname === "/ws/bot" || url.pathname === "/ws/client") {
         requireWebSocket(request);
         const role = url.pathname.endsWith("/bot") ? "bot" : "client";
+        let protocol: "auto" | "custom" | "onebot11" = "auto";
+        let principal = role;
         if (role === "bot") {
-          if (!env.BOT_WS_TOKEN) throw new HttpError(503, "尚未配置 BOT_WS_TOKEN");
-          if (!(await tokenMatches(request, env.BOT_WS_TOKEN))) throw new HttpError(401, "Bot 未授权");
-        } else if (env.PUBLIC_API_TOKEN && !(await tokenMatches(request, env.PUBLIC_API_TOKEN))) {
-          throw new HttpError(401, "客户端未授权");
+          const authorization = await authorizeBotSocket(request, env, url.searchParams.get("protocol") ?? "auto");
+          protocol = authorization.protocol;
+          principal = authorization.principal;
+        } else {
+          await requirePublicApiAccess(request, env);
         }
         const headers = new Headers(request.headers);
         headers.set("X-Relay-Role", role);
+        headers.set("X-Relay-Principal", principal);
         if (role === "bot") {
-          const protocol = url.searchParams.get("protocol") ?? "auto";
-          if (!/^(auto|custom|onebot11)$/.test(protocol)) throw new HttpError(400, "protocol 只支持 auto、custom 或 onebot11");
           headers.set("X-Relay-Protocol", protocol);
         }
         return relayStub(env, channelOf(url, env)).fetch(new Request("https://relay/connect", { headers }));
@@ -91,7 +97,7 @@ export default {
       const match = API_ROUTE.exec(url.pathname);
       if (match) {
         if (request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "只支持 GET 或 POST");
-        if (env.PUBLIC_API_TOKEN && !(await tokenMatches(request, env.PUBLIC_API_TOKEN))) throw new HttpError(401, "未授权");
+        await requirePublicApiAccess(request, env);
         if (request.method === "POST") await mergeJsonBodyIntoQuery(request, url);
         const query = parseApi(url, match[1]!, match[2]!, match[3]!);
         const rankingRequest = makeRequest(query, "api", requestId);
@@ -105,7 +111,7 @@ export default {
       const growthMatch = GROWTH_API_ROUTE.exec(url.pathname);
       if (growthMatch) {
         if (request.method !== "GET" && request.method !== "POST") throw new HttpError(405, "只支持 GET 或 POST");
-        if (env.PUBLIC_API_TOKEN && !(await tokenMatches(request, env.PUBLIC_API_TOKEN))) throw new HttpError(401, "未授权");
+        await requirePublicApiAccess(request, env);
         const ranks = parseHttpRanks(url.searchParams.get("rank")) ?? [];
         const region = growthMatch[1] === "en" ? "global" : growthMatch[1];
         const response = await relayStub(env, channelOf(url, env)).fetch("https://relay/growth", {
@@ -121,7 +127,7 @@ export default {
       const profileMatch = PROFILE_API_ROUTE.exec(url.pathname);
       if (contentMatch || characterRatingMatch || characterInfoMatch || profileMatch) {
         if (request.method !== "GET") throw new HttpError(405, "只支持 GET");
-        if (env.PUBLIC_API_TOKEN && !(await tokenMatches(request, env.PUBLIC_API_TOKEN))) throw new HttpError(401, "未授权");
+        await requirePublicApiAccess(request, env);
         const regionRaw = (contentMatch?.[1] ?? characterRatingMatch?.[1] ?? characterInfoMatch?.[1] ?? profileMatch?.[1])!;
         const region: Region = regionRaw === "en" ? "global" : regionRaw as Region;
         const term = decodeURIComponent((contentMatch?.[3] ?? characterRatingMatch?.[2] ?? characterInfoMatch?.[2] ?? profileMatch?.[2])!);
@@ -144,9 +150,10 @@ export default {
       throw new HttpError(404, "Not Found");
     } catch (error) {
       const status = error instanceof HttpError ? error.status : 500;
-      const message = error instanceof Error ? error.message : "Internal Server Error";
-      console.error(JSON.stringify({ event: "request_error", requestId, method: request.method, path: url.pathname, status, error: message }));
-      return withCors(Response.json({ ok: false, error: message, requestId }, { status }));
+      const internalMessage = error instanceof Error ? error.message : "Internal Server Error";
+      const publicMessage = error instanceof HttpError ? error.message : "Internal Server Error";
+      console.error(JSON.stringify({ event: "request_error", requestId, method: request.method, path: url.pathname, status, error: internalMessage }));
+      return withCors(Response.json({ ok: false, error: publicMessage, requestId }, { status }));
     }
   },
 } satisfies ExportedHandler<Env>;
@@ -207,23 +214,6 @@ function requireWebSocket(request: Request): void {
   }
 }
 
-async function tokenMatches(request: Request, expected: string): Promise<boolean> {
-  const authorization = request.headers.get("Authorization");
-  const provided = authorization?.startsWith("Bearer ")
-    ? authorization.slice(7)
-    : new URL(request.url).searchParams.get("token") ?? "";
-  const encoder = new TextEncoder();
-  const [left, right] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
-    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-  ]);
-  const a = new Uint8Array(left);
-  const b = new Uint8Array(right);
-  let difference = 0;
-  for (let index = 0; index < a.length; index += 1) difference |= a[index]! ^ b[index]!;
-  return difference === 0;
-}
-
 async function mergeJsonBodyIntoQuery(request: Request, url: URL): Promise<void> {
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > 16_384) throw new HttpError(413, "请求体过大");
@@ -261,6 +251,7 @@ function indexDocument(url: URL): Record<string, unknown> {
       characterRating: "/api/v1/{jp|global|en}/character/{id-or-name}/rating?rank=1,2,3",
       profile: "/api/v1/{jp|global|en}/profile/{public-user-id}",
       aliasAudit: "/audit",
+      credentialPortal: "https://holo.rettheory.top/",
     },
     reverseWebSocket: {
       bot: `${ws}//${url.host}/ws/bot?channel=main`,
@@ -271,17 +262,25 @@ function indexDocument(url: URL): Record<string, unknown> {
   };
 }
 
-async function requireAuditToken(request: Request, env: Env): Promise<void> {
-  if (!env.BOT_WS_TOKEN) throw new HttpError(503, "尚未配置管理员 Token");
-  if (!(await tokenMatches(request, env.BOT_WS_TOKEN))) throw new HttpError(401, "管理员未授权");
+function isPortalHost(url: URL): boolean {
+  return ["holo.rettheory.top", "localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname.toLowerCase());
+}
+
+function portalPage(): Response {
+  return htmlPage(credentialPortalDocument());
 }
 
 function auditPage(): Response {
-  return new Response(auditDocument(), {
+  return htmlPage(auditDocument());
+}
+
+function htmlPage(document: string): Response {
+  return new Response(document, {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
       "x-frame-options": "DENY",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
@@ -292,7 +291,7 @@ function auditPage(): Response {
 function withCors(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
   headers.set("Access-Control-Max-Age", "86400");
   headers.set("X-Content-Type-Options", "nosniff");

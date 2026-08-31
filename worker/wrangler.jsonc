@@ -26,7 +26,7 @@
     }
   ],
   "secrets": {
-    "required": ["BOT_WS_TOKEN"]
+    "required": ["BOT_WS_TOKEN", "ADMIN_BOOTSTRAP_TOKEN", "AUTH_ENCRYPTION_KEY"]
   },
   "durable_objects": {
     "bindings": [

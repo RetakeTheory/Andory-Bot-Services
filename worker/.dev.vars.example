@@ -1,2 +1,4 @@
 BOT_WS_TOKEN=replace-with-a-long-random-secret
+ADMIN_BOOTSTRAP_TOKEN=replace-with-a-separate-one-time-admin-secret
+AUTH_ENCRYPTION_KEY=replace-with-a-random-32-byte-or-longer-secret
 PUBLIC_API_TOKEN=
