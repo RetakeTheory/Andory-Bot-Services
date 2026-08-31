@@ -2,7 +2,9 @@ import { HttpError } from "./model";
 
 const SESSION_COOKIE = "andory_session";
 const SESSION_SECONDS = 30 * 24 * 60 * 60;
-const PASSWORD_ITERATIONS = 120_000;
+// workerd rejects WebCrypto PBKDF2 values above 100,000 in production.
+// Keep this at the runtime ceiling so local development matches deployment.
+const PASSWORD_ITERATIONS = 100_000;
 const FAKE_PASSWORD_SALT = "AAAAAAAAAAAAAAAAAAAAAA";
 const FAKE_PASSWORD_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const MAX_ACTIVE_CREDENTIALS_PER_SCOPE = 5;
