@@ -1,0 +1,40 @@
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+worker/.dev.vars
+worker/.game.env
+worker/.wrangler/
+
+# Runtime state, caches, sessions, generated images and build output
+worker/.data/
+worker/test-output/
+worker/dist/
+worker/node_modules/
+worker/node_modules.partial/
+worker/worker-configuration.d.ts
+worker/assets/
+worker/*.ipa
+worker/*.pcapng
+worker/**/*.session.json
+
+# Local analysis, game dumps, IPA contents and third-party data
+.venv/
+__pycache__/
+*.pyc
+incoming/
+work/
+external/
+jp/
+global/
+merged/
+generated/
+state/
+config/
+contracts/
+/scripts/
+
+# Tool/editor noise
+.pnpm-store/
+.DS_Store
+Thumbs.db

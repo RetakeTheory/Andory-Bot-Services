@@ -1,0 +1,7 @@
+node_modules/
+node_modules.partial/
+.wrangler/
+.dev.vars
+.game.env
+.data/
+worker-configuration.d.ts

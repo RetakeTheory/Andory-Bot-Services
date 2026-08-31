@@ -1,0 +1,20 @@
+{
+  "name": "andory-game-data-bot",
+  "version": "1.0.0",
+  "bin": "examples/game-data-bot-launcher.mjs",
+  "pkg": {
+    "scripts": [
+      "examples/**/*.mjs"
+    ],
+    "assets": [
+      "assets/**/*",
+      "scripts/extract-unity-image.py",
+      "node_modules/@7mind.io/sqlcipher-wasm/dist/**/*",
+      "node_modules/sharp/**/*"
+    ],
+    "targets": [
+      "node20-win-x64"
+    ],
+    "outputPath": "dist"
+  }
+}

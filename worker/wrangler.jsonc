@@ -1,0 +1,50 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "holodori-rank-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "api.rettheory.top",
+      "custom_domain": true
+    },
+    {
+      "pattern": "holo.rettheory.top",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "DEFAULT_CHANNEL": "main",
+    "BOT_TIMEOUT_MS": "60000"
+  },
+  "d1_databases": [
+    {
+      "binding": "ALIAS_DB",
+      "database_name": "holodori-aliases",
+      "database_id": "48807709-d4ea-4795-96e3-8ef7765938ba"
+    }
+  ],
+  "secrets": {
+    "required": ["BOT_WS_TOKEN"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BOT_RELAY",
+        "class_name": "BotRelay"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BotRelay"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.1 }
+  }
+}
