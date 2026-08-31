@@ -5,7 +5,7 @@ const readline = require("node:readline");
 const process = require("node:process");
 const { setTimeout: delay } = require("node:timers/promises");
 
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 const CREDENTIAL_URL = "https://holo.rettheory.top";
 const DEFAULT_REMOTE_URL = "wss://api.rettheory.top/ws/bot?channel=main&protocol=onebot11";
 const DEFAULT_LOCAL_URLS = [
@@ -215,7 +215,10 @@ async function run(options) {
   console.log("Audit credentials are restricted to administrator accounts.");
   console.log("Credentials remain in memory only. Press Ctrl+C to stop.\n");
 
-  const credential = process.env.ANDORY_BOT_CREDENTIAL || process.env.BOT_WS_TOKEN || await readSecret("Andory Bot credential");
+  // BOT_WS_TOKEN belongs to the private game-data adapter. Never treat that
+  // deployment secret as a local OneBot credential: stale .env values would
+  // otherwise silently override the credential the user intended to enter.
+  const credential = process.env.ANDORY_BOT_CREDENTIAL || await readSecret("Andory Bot credential");
   if (!credential) throw new Error("Andory Bot credential is required");
   const channel = options.channel || process.env.ANDORY_CHANNEL || "main";
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(channel)) throw new Error("Invalid channel");
