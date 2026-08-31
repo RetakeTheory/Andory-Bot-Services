@@ -309,6 +309,11 @@ export class BotRelay extends DurableObject<Env> {
     if (url.pathname === "/growth" && request.method === "POST") return this.growthFromApi(request);
     if (url.pathname === "/aliases/list" && request.method === "GET") return this.listAliasProposals();
     if (url.pathname === "/aliases/review" && request.method === "POST") return this.reviewAliasProposal(request);
+    if (url.pathname === "/admin/notify" && request.method === "POST") {
+      const bots = this.customBotSockets();
+      for (const bot of bots) bot.send(JSON.stringify({ type: "admin.job.available" }));
+      return Response.json({ ok: true, notified: bots.length });
+    }
     if (url.pathname === "/status") {
       const bots = this.botSockets();
       const dataBots = bots.filter((socket) => attachment(socket).protocol === "custom");

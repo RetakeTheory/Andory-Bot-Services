@@ -25,6 +25,15 @@
       "database_id": "48807709-d4ea-4795-96e3-8ef7765938ba"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "ADMIN_DATA",
+      "bucket_name": "andory-admin-data"
+    }
+  ],
+  "triggers": {
+    "crons": ["17 4 * * *"]
+  },
   "secrets": {
     "required": ["BOT_WS_TOKEN", "ADMIN_BOOTSTRAP_TOKEN", "AUTH_ENCRYPTION_KEY"]
   },

@@ -1,4 +1,11 @@
 import { createHash } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { spawn } from "node:child_process";
 import { HolodoriClient, queryRanking } from "./game-client.mjs";
 import { GameAssetStore, attachContentImage, contentAssetName } from "./game-assets.mjs";
 import { MasterDataStore } from "./master-data.mjs";
@@ -7,6 +14,9 @@ import { renderContentPng, renderHelpPng, renderRankingPng } from "./ranking-ren
 const endpoint = process.env.BOT_WS_URL ?? "wss://api.rettheory.top/ws/bot?channel=main&protocol=custom";
 const token = process.env.BOT_WS_TOKEN;
 if (!token) throw new Error("Set BOT_WS_TOKEN before starting the game data Bot");
+const apiBase = new URL(endpoint).origin.replace(/^ws/i, "http");
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const adminWorkDir = resolve(".data", "admin-jobs");
 
 const clients = new Map();
 const masters = new Map();
@@ -19,6 +29,8 @@ const PROFILE_CACHE_TTL_MS = 20_000;
 const CHARACTER_RANKING_CACHE_TTL_MS = 12_000;
 const STATIC_CONTENT_CACHE_TTL_MS = 10 * 60_000;
 let retry = 1000;
+let adminJobsRunning = false;
+let adminFallbackTimer;
 
 async function clientFor(region) {
   let promise = clients.get(region);
@@ -87,6 +99,11 @@ function connect() {
     }))
       .then(() => console.log("JP/global master indexes are ready"))
       .catch((error) => console.error("Master index warm-up failed:", error instanceof Error ? error.message : error));
+    void claimAdminJobs();
+    clearInterval(adminFallbackTimer);
+    // WebSocket notifications handle normal dispatch. This low-frequency poll
+    // only recovers jobs queued while the data Bot was offline.
+    adminFallbackTimer = setInterval(() => void claimAdminJobs(), 5 * 60_000);
   });
 
   socket.addEventListener("message", async (event) => {
@@ -94,6 +111,10 @@ function connect() {
     try {
       request = JSON.parse(String(event.data));
     } catch {
+      return;
+    }
+    if (request.type === "admin.job.available") {
+      void claimAdminJobs();
       return;
     }
     if (typeof request.requestId !== "string") return;
@@ -169,6 +190,130 @@ function connect() {
 }
 
 connect();
+
+async function claimAdminJobs() {
+  if (adminJobsRunning) return;
+  adminJobsRunning = true;
+  try {
+    while (true) {
+      const response = await adminFetch("/internal/admin/jobs/claim", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error ?? `admin claim HTTP ${response.status}`);
+      if (!payload.job) return;
+      await processAdminJob(payload.job, payload.downloadPath);
+    }
+  } catch (error) {
+    console.error("Admin data job polling failed:", error instanceof Error ? error.message : error);
+  } finally {
+    adminJobsRunning = false;
+  }
+}
+
+async function processAdminJob(job, downloadPath) {
+  console.log(`Admin ${job.kind} job ${job.id} started for ${job.region}`);
+  let completion;
+  try {
+    const result = job.kind === "master-refresh"
+      ? await refreshMasterData(job.region)
+      : job.kind === "ipa"
+        ? await ingestUploadedIpa(job, downloadPath)
+        : (() => { throw new Error(`Unsupported admin job kind ${job.kind}`); })();
+    completion = { ok: true, result };
+    console.log(`Admin ${job.kind} job ${job.id} completed`);
+  } catch (error) {
+    completion = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    console.error(`Admin ${job.kind} job ${job.id} failed:`, completion.error);
+  }
+  const response = await adminFetch(`/internal/admin/jobs/${encodeURIComponent(job.id)}/complete`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(completion),
+  });
+  if (!response.ok) throw new Error(`admin completion HTTP ${response.status}: ${await response.text()}`);
+}
+
+async function refreshMasterData(region) {
+  if (region !== "jp" && region !== "global") throw new Error(`Invalid region ${region}`);
+  clients.delete(region);
+  masters.delete(region);
+  assets.delete(region);
+  queryCache.clear();
+  renderCache.clear();
+  paletteCache.clear();
+  const client = await clientFor(region);
+  const index = await masterFor(region).then((store) => store.ensure());
+  return {
+    appVersion: client.appVersion,
+    masterVersion: index.version,
+    syncedAt: index.syncedAt,
+    counts: {
+      cards: index.cards?.length ?? 0,
+      characters: index.characters?.length ?? 0,
+      musics: index.musics?.length ?? 0,
+    },
+  };
+}
+
+async function ingestUploadedIpa(job, downloadPath) {
+  const dumper = process.env.ANDORY_IL2CPP_DUMPER;
+  if (!dumper) throw new Error("数据 Bot 尚未配置 ANDORY_IL2CPP_DUMPER，无法提取 IPA protobuf");
+  const python = process.env.ANDORY_PYTHON ?? "python";
+  await mkdir(adminWorkDir, { recursive: true });
+  const ipaPath = resolve(adminWorkDir, `${job.id}.ipa`);
+  try {
+    const response = await adminFetch(downloadPath, { method: "GET" });
+    if (!response.ok || !response.body) throw new Error(`IPA download HTTP ${response.status}`);
+    await pipeline(Readable.fromWeb(response.body), createWriteStream(ipaPath, { flags: "wx" }));
+    await runProcess(python, ["scripts/check_app_store.py", "--region", job.region, "--write"], repositoryRoot);
+    await runProcess(python, [
+      "scripts/ingest_ipa.py",
+      "--region", job.region,
+      "--ipa", ipaPath,
+      "--il2cpp-dumper", dumper,
+    ], repositoryRoot);
+    const [ipaState, appState, manifest] = await Promise.all([
+      readJsonFile(resolve(repositoryRoot, "state", job.region, "ipa.json")),
+      readJsonFile(resolve(repositoryRoot, "state", job.region, "appstore.json")),
+      readJsonFile(resolve(repositoryRoot, job.region, "descriptors", "manifest.json")),
+    ]);
+    return {
+      appVersion: ipaState.version,
+      build: ipaState.build,
+      bundleId: ipaState.bundle_id,
+      sha256: ipaState.sha256,
+      appStoreVersion: appState.version,
+      descriptorCount: manifest.descriptor_count,
+      parsedAt: new Date().toISOString(),
+    };
+  } finally {
+    await rm(ipaPath, { force: true });
+  }
+}
+
+async function adminFetch(path, init) {
+  return fetch(new URL(path, apiBase), {
+    ...init,
+    headers: { authorization: `Bearer ${token}`, ...(init?.headers ?? {}) },
+  });
+}
+
+async function readJsonFile(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+function runProcess(command, args, cwd) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, { cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    const capture = (chunk) => {
+      output = `${output}${String(chunk)}`.slice(-16_000);
+    };
+    child.stdout.on("data", capture);
+    child.stderr.on("data", capture);
+    child.once("error", reject);
+    child.once("exit", (code) => code === 0 ? resolvePromise() : reject(new Error(`${command} exited ${code}: ${output.trim()}`)));
+  });
+}
 
 async function renderContentData(request) {
   if (request.imageType === "profile") {

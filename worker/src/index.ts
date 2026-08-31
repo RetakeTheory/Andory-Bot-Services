@@ -4,6 +4,7 @@ import { authorizeBotSocket, handleAccountRoute, requireAdminSession, requireAud
 import { BotRelay } from "./relay";
 import { HttpError } from "./model";
 import { credentialPortalDocument } from "./portal";
+import { cleanupAdminData, handleAdminDataRoute, handleInternalAdminDataRoute } from "./admin-data";
 import type { ContentQuery, ContentRequest, Region } from "./model";
 import { makeRequest, parseApi, usage } from "./protocol";
 
@@ -38,6 +39,10 @@ export default {
       if (url.pathname === "/") return isPortalHost(url) ? portalPage() : withCors(Response.json(indexDocument(url)));
       const accountResponse = await handleAccountRoute(request, env, url);
       if (accountResponse) return accountResponse;
+      const adminDataResponse = await handleAdminDataRoute(request, env, url);
+      if (adminDataResponse) return adminDataResponse;
+      const internalAdminDataResponse = await handleInternalAdminDataRoute(request, env, url);
+      if (internalAdminDataResponse) return internalAdminDataResponse;
       if (url.pathname === "/audit") {
         if (request.method !== "GET") throw new HttpError(405, "只支持 GET");
         await requireAdminSession(request, env);
@@ -155,6 +160,9 @@ export default {
       console.error(JSON.stringify({ event: "request_error", requestId, method: request.method, path: url.pathname, status, error: internalMessage }));
       return withCors(Response.json({ ok: false, error: publicMessage, requestId }, { status }));
     }
+  },
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(cleanupAdminData(env));
   },
 } satisfies ExportedHandler<Env>;
 
